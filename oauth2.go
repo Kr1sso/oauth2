@@ -177,15 +177,7 @@ func (c *Config) Exchange(ctx context.Context, code string) (*Token, error) {
 
 // ExchangeWithAdditionalValues converts an authorization code into a token
 // and allows for additional URL values to be passed to the token endpoint.
-//
-// It is used after a resource provider redirects the user back
-// to the Redirect URI (the URL obtained from AuthCodeURL).
-//
-// The HTTP client to use is derived from the context.
-// If a client is not provided via the context, http.DefaultClient is used.
-//
-// The code will be in the *http.Request.FormValue("code"). Before
-// calling ExchangeWithAdditionalValues, be sure to validate FormValue("state").
+// This enables exchange functionality with non-standardized enpoints e.g. Microsoft Azure.
 func (c *Config) ExchangeWithAdditionalValues(ctx context.Context, code string, additionalValues url.Values) (*Token, error) {
 	values := url.Values{
 		"grant_type":   {"authorization_code"},
@@ -217,6 +209,8 @@ func (c *Config) TokenSource(ctx context.Context, t *Token) TokenSource {
 	return c.TokenSourceWithAdditionalValues(ctx, t, url.Values{})
 }
 
+// TokenSourceWithAdditionalValues returns a TokenSource that returns t until t expires just like TokenSource, but
+// also adds the option to submit additional URL values for the token retrival
 func (c *Config) TokenSourceWithAdditionalValues(ctx context.Context, t *Token, additionalValues url.Values) TokenSource {
 	tkr := &tokenRefresher{
 		ctx:                 ctx,
@@ -235,9 +229,10 @@ func (c *Config) TokenSourceWithAdditionalValues(ctx context.Context, t *Token, 
 // tokenRefresher is a TokenSource that makes "grant_type"=="refresh_token"
 // HTTP requests to renew a token using a RefreshToken.
 type tokenRefresher struct {
-	ctx          context.Context // used to get HTTP requests
-	conf         *Config
-	refreshToken string
+	ctx                 context.Context // used to get HTTP requests
+	conf                *Config
+	refreshToken        string
+	additionalURLValues url.Values
 }
 
 // WARNING: Token is not safe for concurrent access, as it
@@ -249,11 +244,16 @@ func (tf *tokenRefresher) Token() (*Token, error) {
 		return nil, errors.New("oauth2: token expired and refresh token is not set")
 	}
 
-	tk, err := retrieveToken(tf.ctx, tf.conf, url.Values{
+	values := url.Values{
 		"grant_type":    {"refresh_token"},
 		"refresh_token": {tf.refreshToken},
-	})
+	}
 
+	for key, value := range tf.additionalURLValues {
+		values[key] = value
+	}
+
+	tk, err := retrieveToken(tf.ctx, tf.conf, values)
 	if err != nil {
 		return nil, err
 	}
