@@ -172,12 +172,33 @@ func (c *Config) PasswordCredentialsToken(ctx context.Context, username, passwor
 // The code will be in the *http.Request.FormValue("code"). Before
 // calling Exchange, be sure to validate FormValue("state").
 func (c *Config) Exchange(ctx context.Context, code string) (*Token, error) {
-	return retrieveToken(ctx, c, url.Values{
+	return c.ExchangeWithAdditionalValues(ctx, code, url.Values{})
+}
+
+// ExchangeWithAdditionalValues converts an authorization code into a token
+// and allows for additional URL values to be passed to the token endpoint.
+//
+// It is used after a resource provider redirects the user back
+// to the Redirect URI (the URL obtained from AuthCodeURL).
+//
+// The HTTP client to use is derived from the context.
+// If a client is not provided via the context, http.DefaultClient is used.
+//
+// The code will be in the *http.Request.FormValue("code"). Before
+// calling ExchangeWithAdditionalValues, be sure to validate FormValue("state").
+func (c *Config) ExchangeWithAdditionalValues(ctx context.Context, code string, additionalValues url.Values) (*Token, error) {
+	values := url.Values{
 		"grant_type":   {"authorization_code"},
 		"code":         {code},
 		"redirect_uri": internal.CondVal(c.RedirectURL),
 		"scope":        internal.CondVal(strings.Join(c.Scopes, " ")),
-	})
+	}
+
+	for key, value := range additionalValues {
+		values[key] = value
+	}
+
+	return retrieveToken(ctx, c, values)
 }
 
 // Client returns an HTTP client using the provided token.
@@ -193,9 +214,14 @@ func (c *Config) Client(ctx context.Context, t *Token) *http.Client {
 //
 // Most users will use Config.Client instead.
 func (c *Config) TokenSource(ctx context.Context, t *Token) TokenSource {
+	return c.TokenSourceWithAdditionalValues(ctx, t, url.Values{})
+}
+
+func (c *Config) TokenSourceWithAdditionalValues(ctx context.Context, t *Token, additionalValues url.Values) TokenSource {
 	tkr := &tokenRefresher{
-		ctx:  ctx,
-		conf: c,
+		ctx:                 ctx,
+		conf:                c,
+		additionalURLValues: additionalValues,
 	}
 	if t != nil {
 		tkr.refreshToken = t.RefreshToken
